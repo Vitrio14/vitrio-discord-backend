@@ -22,17 +22,17 @@ admin.initializeApp({
 
 const db = admin.firestore();
 
-
 // ================================
-//  EXPRESS CONFIG + CORS FIX
+//  EXPRESS CONFIG + CORS
 // ================================
 const app = express();
 
-app.use(express.json());
-
-// CORS PERSONALIZZATO → RISOLVE TUTTI I TUOI ERRORI
+// il tuo dominio Netlify
 const FRONTEND_URL = "https://vitrio-ttv.netlify.app";
 
+app.use(express.json());
+
+// CORS base: permette il tuo dominio
 app.use(
   cors({
     origin: FRONTEND_URL,
@@ -41,29 +41,16 @@ app.use(
   })
 );
 
-// FIX PER RICHIESTE OPTIONS (preflight)
-app.options("*", (req, res) => {
-  res.setHeader("Access-Control-Allow-Origin", FRONTEND_URL);
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-  return res.sendStatus(200);
+// Route base di test
+app.get("/", (req, res) => {
+  res.send("Vitrio backend OK");
 });
-
-// Middleware globale per sicurezza
-app.use((req, res, next) => {
-  res.setHeader("Access-Control-Allow-Origin", FRONTEND_URL);
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  next();
-});
-
 
 // ================================
 //  DISCORD CONFIG
 // ================================
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const GUILD_ID = "821024627391463504";
-
 
 // ================================
 //  HELPERS
@@ -75,7 +62,6 @@ function success(res, data) {
 function fail(res, message) {
   return res.json({ ok: false, error: message });
 }
-
 
 // ================================
 //  API 1 — GET USER DISCORD INFO
@@ -116,7 +102,6 @@ app.get("/getUserInfo", async (req, res) => {
   }
 });
 
-
 // ================================
 //  API 2 — GET Omega Points
 // ================================
@@ -131,14 +116,15 @@ app.get("/getOmega", async (req, res) => {
   });
 });
 
-
 // ================================
 //  API 3 — ADD Omega Points
 // ================================
 app.post("/addOmega", async (req, res) => {
   const { userId, amount } = req.body;
 
-  if (!userId || typeof amount !== "number") return fail(res, "Invalid parameters");
+  if (!userId || typeof amount !== "number") {
+    return fail(res, "Invalid parameters");
+  }
 
   const ref = db.collection("users").doc(userId);
   const snap = await ref.get();
@@ -162,14 +148,15 @@ app.post("/addOmega", async (req, res) => {
   });
 });
 
-
 // ================================
 //  API 4 — REMOVE Omega Points
 // ================================
 app.post("/removeOmega", async (req, res) => {
   const { userId, amount } = req.body;
 
-  if (!userId || typeof amount !== "number") return fail(res, "Invalid parameters");
+  if (!userId || typeof amount !== "number") {
+    return fail(res, "Invalid parameters");
+  }
 
   const ref = db.collection("users").doc(userId);
   const snap = await ref.get();
@@ -193,14 +180,15 @@ app.post("/removeOmega", async (req, res) => {
   });
 });
 
-
 // ================================
-//  API 5 — SET Omega Points
+//  API 5 — SET Omega Points (ADMIN)
 // ================================
 app.post("/setOmega", async (req, res) => {
   const { userId, value } = req.body;
 
-  if (!userId || typeof value !== "number") return fail(res, "Invalid parameters");
+  if (!userId || typeof value !== "number") {
+    return fail(res, "Invalid parameters");
+  }
 
   await db.collection("users").doc(userId).set({ omega: value }, { merge: true });
 
@@ -218,13 +206,11 @@ app.post("/setOmega", async (req, res) => {
   });
 });
 
-
 // ================================
-//  API 6 — GET PERSONAL HISTORY
+//  API 6 — GET Storico Omega Points (PERSONAL)
 // ================================
 app.get("/getOmegaHistory", async (req, res) => {
   const userId = req.query.userId;
-
   if (!userId) return fail(res, "Missing userId");
 
   const snap = await db.collection("omegaHistory")
@@ -233,12 +219,13 @@ app.get("/getOmegaHistory", async (req, res) => {
     .limit(50)
     .get();
 
-  return success(res, { history: snap.docs.map(d => d.data()) });
+  const list = snap.docs.map(d => d.data());
+
+  return success(res, { history: list });
 });
 
-
 // ================================
-//  API 6B — ADMIN HISTORY (ALL USERS)
+//  API 6B — GET Storico Omega Points (ADMIN - ALL USERS)
 // ================================
 app.get("/getOmegaHistoryAll", async (req, res) => {
   const limit = Number(req.query.limit) || 50;
@@ -262,15 +249,15 @@ app.get("/getOmegaHistoryAll", async (req, res) => {
   }
 });
 
-
 // ================================
-//  API 7 — GET Rewards
+//  API 7 — GET Rewards (Premi)
 // ================================
 app.get("/getRewards", async (req, res) => {
   const snap = await db.collection("rewards").orderBy("cost", "asc").get();
-  return success(res, { rewards: snap.docs.map(d => ({ id: d.id, ...d.data() })) });
-});
+  const rewards = snap.docs.map(d => ({ id: d.id, ...d.data() }));
 
+  return success(res, { rewards });
+});
 
 // ================================
 //  API 8 — Redeem Reward
@@ -311,7 +298,6 @@ app.post("/redeemReward", async (req, res) => {
     omega: updated
   });
 });
-
 
 // ================================
 //  START SERVER
