@@ -194,7 +194,7 @@ app.post("/setOmega", async (req, res) => {
 });
 
 // ================================
-//  API 6 — GET Storico Omega Points
+//  API 6 — GET Storico Omega Points (PERSONAL)
 // ================================
 app.get("/getOmegaHistory", async (req, res) => {
   const userId = req.query.userId;
@@ -212,6 +212,31 @@ app.get("/getOmegaHistory", async (req, res) => {
 });
 
 // ================================
+//  API 6B — GET Storico Omega Points (ADMIN - ALL USERS)
+// ================================
+app.get("/getOmegaHistoryAll", async (req, res) => {
+  const limit = Number(req.query.limit) || 50;
+
+  try {
+    const snap = await db.collection("omegaHistory")
+      .orderBy("timestamp", "desc")
+      .limit(limit)
+      .get();
+
+    const history = snap.docs.map(d => ({
+      id: d.id,
+      ...d.data()
+    }));
+
+    return success(res, { history });
+
+  } catch (err) {
+    console.error("Error loading admin history:", err);
+    return fail(res, "Failed to load history");
+  }
+});
+
+// ================================
 //  API 7 — GET Rewards (Premi)
 // ================================
 app.get("/getRewards", async (req, res) => {
@@ -222,7 +247,7 @@ app.get("/getRewards", async (req, res) => {
 });
 
 // ================================
-//  API 8 — Redeem Reward (Riscatta premio)
+//  API 8 — Redeem Reward
 // ================================
 app.post("/redeemReward", async (req, res) => {
   const { userId, rewardId } = req.body;
