@@ -7,17 +7,19 @@ import express from "express";
 import fetch from "node-fetch";
 import cors from "cors";
 import admin from "firebase-admin";
+import fs from "fs";
 
-// ================================
-//  FIREBASE ADMIN INIT
-// ================================
-import serviceAccount from "./serviceAccountKey.json" assert { type: "json" };
+// Carica serviceAccountKey.json tramite fs
+const serviceAccount = JSON.parse(
+  fs.readFileSync("./serviceAccountKey.json", "utf8")
+);
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount)
 });
 
 const db = admin.firestore();
+
 
 // ================================
 //  EXPRESS CONFIG
