@@ -1,6 +1,6 @@
 // ================================
-//  VITRIO BACKEND COMPLETO
-//  Discord API + Omega Points + Shop
+//  VITRIO BACKEND — COMPLETO
+//  OAuth2 Discord + Omega Points + Shop
 // ================================
 
 import express from "express";
@@ -9,8 +9,9 @@ import cors from "cors";
 import admin from "firebase-admin";
 import fs from "fs";
 
+
 // ================================
-//  FIREBASE SERVICE ACCOUNT
+//  LOAD FIREBASE SERVICE ACCOUNT
 // ================================
 const serviceAccount = JSON.parse(
   fs.readFileSync("./serviceAccountKey.json", "utf8")
@@ -22,53 +23,89 @@ admin.initializeApp({
 
 const db = admin.firestore();
 
+
 // ================================
-//  EXPRESS CONFIG + CORS
+//  EXPRESS CONFIG
 // ================================
 const app = express();
-
-// il tuo dominio Netlify
-const FRONTEND_URL = "https://vitrio-ttv.netlify.app";
-
 app.use(express.json());
 
-// CORS base: permette il tuo dominio
+const FRONTEND_URL = "https://vitrio-ttv.netlify.app";
+
 app.use(
   cors({
     origin: FRONTEND_URL,
-    methods: ["GET", "POST", "OPTIONS"],
-    allowedHeaders: ["Content-Type"],
+    methods: ["GET", "POST"],
+    allowedHeaders: ["Content-Type"]
   })
 );
 
-// Route base di test
-app.get("/", (req, res) => {
-  res.send("Vitrio backend OK");
-});
 
 // ================================
 //  DISCORD CONFIG
 // ================================
+const CLIENT_ID = process.env.DISCORD_CLIENT_ID;
+const CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET;
 const BOT_TOKEN = process.env.BOT_TOKEN;
+
+// GUILD
 const GUILD_ID = "821024627391463504";
 
-// ================================
-//  HELPERS
-// ================================
-function success(res, data) {
-  return res.json({ ok: true, ...data });
-}
-
-function fail(res, message) {
-  return res.json({ ok: false, error: message });
-}
 
 // ================================
-//  API 1 — GET USER DISCORD INFO
+//  DEBUG ROUTE
 // ================================
+app.get("/", (req, res) => {
+  res.send("Vitrio backend ONLINE");
+});
+
+
+// ===============================================================
+//  **API 0 — OAuth2 Exchange Code → Access Token**
+// ===============================================================
+app.post("/discord/token", async (req, res) => {
+  const { code } = req.body;
+
+  if (!code) {
+    return res.status(400).json({ error: "Missing OAuth code" });
+  }
+
+  try {
+    const body = new URLSearchParams({
+      client_id: CLIENT_ID,
+      client_secret: CLIENT_SECRET,
+      grant_type: "authorization_code",
+      code,
+      redirect_uri: "https://vitrio-ttv.netlify.app/discord-auth.html"
+    });
+
+    const tokenRes = await fetch("https://discord.com/api/oauth2/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body
+    });
+
+    const data = await tokenRes.json();
+
+    if (!data.access_token) {
+      console.error("OAuth Error:", data);
+    }
+
+    return res.json(data);
+
+  } catch (err) {
+    console.error("OAuth exchange failed:", err);
+    return res.status(500).json({ error: "OAuth failed" });
+  }
+});
+
+
+// ===============================================================
+//  API 1 — GET USER INFO (BOT TOKEN)
+// ===============================================================
 app.get("/getUserInfo", async (req, res) => {
   const userId = req.query.userId;
-  if (!userId) return fail(res, "Missing userId");
+  if (!userId) return res.json({ ok: false, error: "Missing userId" });
 
   try {
     const user = await fetch(`https://discord.com/api/v10/users/${userId}`, {
@@ -77,10 +114,13 @@ app.get("/getUserInfo", async (req, res) => {
 
     const member = await fetch(
       `https://discord.com/api/v10/guilds/${GUILD_ID}/members/${userId}`,
-      { headers: { Authorization: `Bot ${BOT_TOKEN}` } }
+      {
+        headers: { Authorization: `Bot ${BOT_TOKEN}` }
+      }
     ).then(r => r.json());
 
-    return success(res, {
+    return res.json({
+      ok: true,
       user: {
         id: user.id,
         username: user.username,
@@ -97,33 +137,37 @@ app.get("/getUserInfo", async (req, res) => {
     });
 
   } catch (err) {
-    console.error("Errore Discord:", err);
-    return fail(res, "Discord API error");
+    console.error(err);
+    return res.json({ ok: false, error: "Discord API error" });
   }
 });
 
-// ================================
-//  API 2 — GET Omega Points
-// ================================
+
+// ===============================================================
+//  OMEGA POINTS — GET
+// ===============================================================
 app.get("/getOmega", async (req, res) => {
   const userId = req.query.userId;
-  if (!userId) return fail(res, "Missing userId");
+
+  if (!userId) return res.json({ ok: false, error: "Missing userId" });
 
   const snap = await db.collection("users").doc(userId).get();
 
-  return success(res, {
+  return res.json({
+    ok: true,
     omega: snap.exists ? (snap.data().omega || 0) : 0
   });
 });
 
-// ================================
-//  API 3 — ADD Omega Points
-// ================================
+
+// ===============================================================
+//  OMEGA POINTS — ADD
+// ===============================================================
 app.post("/addOmega", async (req, res) => {
   const { userId, amount } = req.body;
 
   if (!userId || typeof amount !== "number") {
-    return fail(res, "Invalid parameters");
+    return res.json({ ok: false, error: "Invalid parameters" });
   }
 
   const ref = db.collection("users").doc(userId);
@@ -133,7 +177,6 @@ app.post("/addOmega", async (req, res) => {
   const updated = current + amount;
 
   await ref.set({ omega: updated }, { merge: true });
-
   await db.collection("omegaHistory").add({
     userId,
     change: amount,
@@ -142,20 +185,18 @@ app.post("/addOmega", async (req, res) => {
     timestamp: Date.now()
   });
 
-  return success(res, {
-    message: `Aggiunti ${amount} Omega Points`,
-    omega: updated
-  });
+  return res.json({ ok: true, omega: updated });
 });
 
-// ================================
-//  API 4 — REMOVE Omega Points
-// ================================
+
+// ===============================================================
+//  OMEGA POINTS — REMOVE
+// ===============================================================
 app.post("/removeOmega", async (req, res) => {
   const { userId, amount } = req.body;
 
   if (!userId || typeof amount !== "number") {
-    return fail(res, "Invalid parameters");
+    return res.json({ ok: false, error: "Invalid parameters" });
   }
 
   const ref = db.collection("users").doc(userId);
@@ -165,7 +206,6 @@ app.post("/removeOmega", async (req, res) => {
   const updated = Math.max(0, current - amount);
 
   await ref.set({ omega: updated }, { merge: true });
-
   await db.collection("omegaHistory").add({
     userId,
     change: -amount,
@@ -174,20 +214,18 @@ app.post("/removeOmega", async (req, res) => {
     timestamp: Date.now()
   });
 
-  return success(res, {
-    message: `Rimossi ${amount} Omega Points`,
-    omega: updated
-  });
+  return res.json({ ok: true, omega: updated });
 });
 
-// ================================
-//  API 5 — SET Omega Points (ADMIN)
-// ================================
+
+// ===============================================================
+//  OMEGA POINTS — SET (ADMIN)
+// ===============================================================
 app.post("/setOmega", async (req, res) => {
   const { userId, value } = req.body;
 
   if (!userId || typeof value !== "number") {
-    return fail(res, "Invalid parameters");
+    return res.json({ ok: false, error: "Invalid parameters" });
   }
 
   await db.collection("users").doc(userId).set({ omega: value }, { merge: true });
@@ -200,18 +238,17 @@ app.post("/setOmega", async (req, res) => {
     timestamp: Date.now()
   });
 
-  return success(res, {
-    message: `Omega Points impostati a ${value}`,
-    omega: value
-  });
+  return res.json({ ok: true, omega: value });
 });
 
-// ================================
-//  API 6 — GET Storico Omega Points (PERSONAL)
-// ================================
+
+// ===============================================================
+//  OMEGA — HISTORY USER
+// ===============================================================
 app.get("/getOmegaHistory", async (req, res) => {
   const userId = req.query.userId;
-  if (!userId) return fail(res, "Missing userId");
+
+  if (!userId) return res.json({ ok: false, error: "Missing userId" });
 
   const snap = await db.collection("omegaHistory")
     .where("userId", "==", userId)
@@ -219,53 +256,50 @@ app.get("/getOmegaHistory", async (req, res) => {
     .limit(50)
     .get();
 
-  const list = snap.docs.map(d => d.data());
+  const list = snap.docs.map(doc => doc.data());
 
-  return success(res, { history: list });
+  return res.json({ ok: true, history: list });
 });
 
-// ================================
-//  API 6B — GET Storico Omega Points (ADMIN - ALL USERS)
-// ================================
+
+// ===============================================================
+//  OMEGA — HISTORY ALL (ADMIN)
+// ===============================================================
 app.get("/getOmegaHistoryAll", async (req, res) => {
   const limit = Number(req.query.limit) || 50;
 
-  try {
-    const snap = await db.collection("omegaHistory")
-      .orderBy("timestamp", "desc")
-      .limit(limit)
-      .get();
+  const snap = await db.collection("omegaHistory")
+    .orderBy("timestamp", "desc")
+    .limit(limit)
+    .get();
 
-    const history = snap.docs.map(d => ({
-      id: d.id,
-      ...d.data()
-    }));
+  const list = snap.docs.map(doc => ({
+    id: doc.id,
+    ...doc.data()
+  }));
 
-    return success(res, { history });
-
-  } catch (err) {
-    console.error("Error loading admin history:", err);
-    return fail(res, "Failed to load history");
-  }
+  return res.json({ ok: true, history: list });
 });
 
-// ================================
-//  API 7 — GET Rewards (Premi)
-// ================================
+
+// ===============================================================
+//  REWARDS — LIST
+// ===============================================================
 app.get("/getRewards", async (req, res) => {
   const snap = await db.collection("rewards").orderBy("cost", "asc").get();
-  const rewards = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const rewards = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-  return success(res, { rewards });
+  return res.json({ ok: true, rewards });
 });
 
-// ================================
-//  API 8 — Redeem Reward
-// ================================
+
+// ===============================================================
+//  REDEEM REWARD
+// ===============================================================
 app.post("/redeemReward", async (req, res) => {
   const { userId, rewardId } = req.body;
 
-  if (!userId || !rewardId) return fail(res, "Invalid parameters");
+  if (!userId || !rewardId) return res.json({ ok: false, error: "Invalid parameters" });
 
   const userRef = db.collection("users").doc(userId);
   const rewardRef = db.collection("rewards").doc(rewardId);
@@ -273,35 +307,32 @@ app.post("/redeemReward", async (req, res) => {
   const userSnap = await userRef.get();
   const rewardSnap = await rewardRef.get();
 
-  if (!rewardSnap.exists) return fail(res, "Reward not found");
+  if (!rewardSnap.exists) return res.json({ ok: false, error: "Reward not found" });
 
   const cost = rewardSnap.data().cost;
   const current = userSnap.exists ? (userSnap.data().omega || 0) : 0;
 
-  if (current < cost) return fail(res, "Not enough Omega Points");
+  if (current < cost) return res.json({ ok: false, error: "Not enough Omega Points" });
 
   const updated = current - cost;
 
   await userRef.set({ omega: updated }, { merge: true });
-
   await db.collection("omegaHistory").add({
     userId,
+    rewardId,
     change: -cost,
     newTotal: updated,
-    rewardId,
     type: "REDEEM",
     timestamp: Date.now()
   });
 
-  return success(res, {
-    message: "Premio riscattato con successo",
-    omega: updated
-  });
+  return res.json({ ok: true, omega: updated });
 });
 
-// ================================
+
+// ===============================================================
 //  START SERVER
-// ================================
+// ===============================================================
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () =>
   console.log(`Backend Vitrio ONLINE su porta ${PORT}`)
