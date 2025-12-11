@@ -30,7 +30,7 @@ const db = admin.firestore();
 const app = express();
 app.use(express.json());
 
-const FRONTEND_URL = "https://vitrio-ttv.netlify.app";
+const FRONTEND_URL = "https://vitrio-tv.netlify.app";
 
 app.use(
   cors({
