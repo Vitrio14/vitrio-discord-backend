@@ -76,7 +76,7 @@ app.post("/discord/token", async (req, res) => {
       client_secret: CLIENT_SECRET,
       grant_type: "authorization_code",
       code,
-      redirect_uri: "https://vitrio-ttv.netlify.app/discord-auth.html"
+      redirect_uri: "https://vitrio-tv.netlify.app/discord-auth.html"
     });
 
     const tokenRes = await fetch("https://discord.com/api/oauth2/token", {
